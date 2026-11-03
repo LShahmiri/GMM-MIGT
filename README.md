@@ -193,7 +193,7 @@ opencv-python, joblib and tqdm.
 To install from source:
 
 ```bash
-git clone <repository-url> gmm-migt
+git clone https://github.com/LShahmiri/GMM-MIGT.git gmm-migt
 cd gmm-migt
 pip install -e ".[dev]"
 pytest

@@ -4,7 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] - 2026-11-02
+## [1.0.1] - 2026-11-03
+
+### Added
+- GMM-MIGT logo at the top of the README (also shown on PyPI).
+- Homepage, Repository and Issues links to
+  https://github.com/LShahmiri/GMM-MIGT.
+
+### Changed
+- README: the "install from source" instructions use the GitHub repository.
+
+## [1.0.0] - 2026-11-03
 
 First release of **GMM-MIGT**, an independent package (`pip install gmm-migt`,
 `import gmm_migt`) implementing the method of Shahmiri, Wong and Dooley, IEEE DSP
