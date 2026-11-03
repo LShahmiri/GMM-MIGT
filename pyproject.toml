@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=77.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmm-migt"
+dynamic = ["version"]
+description = "GMM-MIGT: Gaussian Mixture Model - Mutual Information Guided Training for representative train/test/validation partitioning of image datasets"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Lida Shahmiri", email = "lidashahmiri66@gmail.com" }
+]
+maintainers = [
+  { name = "Lida Shahmiri", email = "lidashahmiri66@gmail.com" }
+]
+keywords = [
+  "gmm-migt",
+  "mutual-information",
+  "gaussian-mixture-model",
+  "expectation-maximization",
+  "pca",
+  "dataset-partitioning",
+  "train-test-split",
+  "computer-vision",
+  "machine-learning",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "numpy>=1.23",
+  "scikit-learn>=1.2",
+  "scikit-image>=0.19",
+  "opencv-python>=4.5",
+  "joblib>=1.2",
+  "tqdm>=4.64",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.5"]
+test = ["pytest>=7.0"]
+dev = [
+  "pytest>=7.0",
+  "build>=1.0",
+  "twine>=5.0",
+  "matplotlib>=3.5",
+]
+
+[project.scripts]
+gmm-migt = "gmm_migt.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/LShahmiri/GMM-MIGT"
+Repository = "https://github.com/LShahmiri/GMM-MIGT"
+Issues = "https://github.com/LShahmiri/GMM-MIGT/issues"
+"GMM-MIGT paper (IEEE DSP 2025)" = "https://doi.org/10.1109/DSP65409.2025.11074907"
+Thesis = "https://doi.org/10.21954/ou.ro.00106127"
+"Thesis (Open Research Online)" = "https://oro.open.ac.uk/106127/"
+"MIGT paper (IEEE IPAS 2022)" = "https://ieeexplore.ieee.org/abstract/document/10053008"
+Changelog = "https://pypi.org/project/gmm-migt/#history"
+
+[tool.setuptools.dynamic]
+version = { attr = "gmm_migt._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["gmm_migt*"]
+
+[tool.setuptools.package-data]
+gmm_migt = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "slow: tests that run the full pipeline on larger synthetic datasets",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning:joblib.*",
+]

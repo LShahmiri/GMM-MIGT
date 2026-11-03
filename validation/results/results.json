@@ -1,0 +1,328 @@
+{
+  "V1_real_images": {
+    "images": [
+      {
+        "image": "china.jpg",
+        "shape": [
+          427,
+          640,
+          3
+        ],
+        "distinct_colours_original": 96615,
+        "distinct_colours_after_em_gmm": 4,
+        "gmm_converged": true,
+        "gmm_iterations": 24,
+        "pca_components_per_channel_BGR": [
+          23,
+          45,
+          64
+        ],
+        "pca_cpv_per_channel": [
+          0.9503,
+          0.9503,
+          0.9502
+        ],
+        "rows_per_channel": 427,
+        "seconds_gmm_plus_pca": 12.71
+      },
+      {
+        "image": "flower.jpg",
+        "shape": [
+          427,
+          640,
+          3
+        ],
+        "distinct_colours_original": 62941,
+        "distinct_colours_after_em_gmm": 4,
+        "gmm_converged": true,
+        "gmm_iterations": 12,
+        "pca_components_per_channel_BGR": [
+          85,
+          58,
+          36
+        ],
+        "pca_cpv_per_channel": [
+          0.9506,
+          0.9506,
+          0.9505
+        ],
+        "rows_per_channel": 427,
+        "seconds_gmm_plus_pca": 7.08
+      }
+    ],
+    "pass": true
+  },
+  "V2_binning": {
+    "cases": {
+      "Fig 4.6 Little leaf privet (4 bins accepted)": {
+        "attempts": [
+          [
+            4,
+            [
+              19,
+              17,
+              45,
+              18
+            ]
+          ]
+        ],
+        "final": [
+          19,
+          17,
+          45,
+          18
+        ],
+        "expected": [
+          19,
+          17,
+          45,
+          18
+        ],
+        "pass": true
+      },
+      "Fig 4.8 Snow (4 fails -> 3 bins)": {
+        "attempts": [
+          [
+            4,
+            [
+              30,
+              5,
+              315,
+              269
+            ]
+          ],
+          [
+            3,
+            [
+              30,
+              220,
+              369
+            ]
+          ]
+        ],
+        "final": [
+          30,
+          220,
+          369
+        ],
+        "expected": [
+          30,
+          220,
+          369
+        ],
+        "pass": true
+      },
+      "Fig 4.10 Holarrhena pubescens (4 -> 3 -> 2 bins)": {
+        "attempts": [
+          [
+            4,
+            [
+              33,
+              47,
+              15,
+              4
+            ]
+          ],
+          [
+            3,
+            [
+              55,
+              38,
+              6
+            ]
+          ],
+          [
+            2,
+            [
+              80,
+              19
+            ]
+          ]
+        ],
+        "final": [
+          80,
+          19
+        ],
+        "expected": [
+          80,
+          19
+        ],
+        "pass": true
+      },
+      "Fig 4.12 Allium ramosum (2 bins fail -> 3 equal portions)": {
+        "attempts": [
+          [
+            4,
+            [
+              42,
+              49,
+              2,
+              6
+            ]
+          ],
+          [
+            3,
+            [
+              59,
+              34,
+              6
+            ]
+          ],
+          [
+            2,
+            [
+              91,
+              8
+            ]
+          ]
+        ],
+        "final": [
+          33,
+          33,
+          33
+        ],
+        "expected": [
+          33,
+          33,
+          33
+        ],
+        "pass": true
+      },
+      "Fig 5.4b Dew, GMM-MIGT (4 bins accepted)": {
+        "attempts": [
+          [
+            4,
+            [
+              82,
+              506,
+              106,
+              10
+            ]
+          ]
+        ],
+        "final": [
+          82,
+          506,
+          106,
+          10
+        ],
+        "expected": [
+          82,
+          506,
+          106,
+          10
+        ],
+        "pass": true
+      },
+      "Fig 5.4a Dew, MIGT (4 bins accepted)": {
+        "attempts": [
+          [
+            4,
+            [
+              111,
+              405,
+              167,
+              14
+            ]
+          ]
+        ],
+        "final": [
+          111,
+          405,
+          167,
+          14
+        ],
+        "expected": [
+          111,
+          405,
+          167,
+          14
+        ],
+        "pass": true
+      },
+      "Dew GMM-MIGT with min_bin=13": {
+        "attempts": [
+          [
+            4,
+            [
+              82,
+              506,
+              106,
+              10
+            ],
+            false
+          ],
+          [
+            3,
+            [
+              230,
+              431,
+              43
+            ],
+            true
+          ]
+        ],
+        "note": "4-bin histogram rejected -> min_bin=10 is what the thesis used"
+      }
+    },
+    "pass": true
+  },
+  "V3_migt_equivalence": {
+    "runs": [
+      {
+        "min_bin": 10,
+        "seed": 0,
+        "identical": true
+      },
+      {
+        "min_bin": 10,
+        "seed": 1,
+        "identical": true
+      },
+      {
+        "min_bin": 10,
+        "seed": 42,
+        "identical": true
+      },
+      {
+        "min_bin": 13,
+        "seed": 0,
+        "identical": true
+      },
+      {
+        "min_bin": 13,
+        "seed": 1,
+        "identical": true
+      },
+      {
+        "min_bin": 13,
+        "seed": 42,
+        "identical": true
+      }
+    ],
+    "pass": true
+  },
+  "V4_synthetic": {
+    "n_datasets": 5,
+    "summary": {
+      "Random": {
+        "mean_total_variation": 0.0987,
+        "std_total_variation": 0.0176,
+        "subtypes_missing_total": 8
+      },
+      "MIGT (no preprocessing)": {
+        "mean_total_variation": 0.115,
+        "std_total_variation": 0.0155,
+        "subtypes_missing_total": 13,
+        "bin_vs_subtype_nmi": 0.0875
+      },
+      "GMM-MIGT": {
+        "mean_total_variation": 0.1093,
+        "std_total_variation": 0.0163,
+        "subtypes_missing_total": 10,
+        "bin_vs_subtype_nmi": 0.159
+      }
+    },
+    "note": "Lower total variation = split sub-type proportions closer to the class proportions."
+  }
+}

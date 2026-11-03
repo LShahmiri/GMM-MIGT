@@ -1,0 +1,8 @@
+include README.md LICENSE CHANGELOG.md pyproject.toml
+recursive-include src/gmm_migt py.typed
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-include docs *.md
+include validation/run_validation.py
+global-exclude __pycache__ *.py[cod]
+prune validation/results
