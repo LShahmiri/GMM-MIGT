@@ -18,7 +18,7 @@ import numpy as np
 from ._version import __version__
 from .exceptions import ConfigurationError
 from .report import ClassReport, ItemRecord, SplitResult
-from .utils import list_classes, list_images, split_counts
+from .utils import ROUNDING_MODES, class_counts, list_classes, list_images, split_counts
 
 
 class RandomSplitter:
@@ -34,6 +34,10 @@ class RandomSplitter:
         Seed of the shuffling.
     verbose:
         Print progress.
+    rounding:
+        ``"class"`` (default): largest-remainder rounding with at least one
+        image per split when the class is large enough. ``"per_bin"``: floor
+        rounding with the remainder in train (versions <= 1.0.1).
     """
 
     def __init__(
@@ -44,6 +48,7 @@ class RandomSplitter:
         val: Optional[float] = None,
         seed: int = 42,
         verbose: bool = True,
+        rounding: str = "class",
     ):
         self.dataset_root = os.fspath(dataset_root)
         if not os.path.isdir(self.dataset_root):
@@ -57,6 +62,9 @@ class RandomSplitter:
             raise ConfigurationError(f"train/test/val ratios must sum to 1.0 (got {sum(self.ratios):g}).")
         self.seed = seed
         self.verbose = verbose
+        if rounding not in ROUNDING_MODES:
+            raise ConfigurationError(f"rounding must be one of {ROUNDING_MODES} (got {rounding!r}).")
+        self.rounding = rounding
 
     def get_config(self) -> Dict[str, Any]:
         return {
@@ -65,6 +73,7 @@ class RandomSplitter:
             "test": self.test,
             "val": self.val,
             "seed": self.seed,
+            "rounding": self.rounding,
         }
 
     def plan(self) -> SplitResult:
@@ -77,7 +86,8 @@ class RandomSplitter:
             report = ClassReport(name=cls, n_images=len(images), strategy="random" if images else "empty")
             paths = images[:]
             rng.shuffle(paths)
-            counts = split_counts(len(paths), self.ratios)
+            counts = (split_counts(len(paths), self.ratios) if self.rounding == "per_bin"
+                      else class_counts(len(paths), self.ratios))
             bounds = np.cumsum(counts)
             for i, p in enumerate(paths):
                 split = names[int(np.searchsorted(bounds, i, side="right"))]

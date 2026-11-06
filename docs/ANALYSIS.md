@@ -102,13 +102,14 @@ therefore keeps MIGT's code paths and adds `preprocessing.py`.
 | `strict_shape`, `resize_to` | ✅ same | Resizing happens before preprocessing. A warning is shown if `resize_to` is ignored. |
 | `seed` | ✅ same | Also seeds EM-GMM. A private RNG is used, so global state is untouched. The RNG sequence is identical to MIGT's (tested). |
 | `verbose` | ✅ same | ASCII output (MIGT's emoji can fail on Windows consoles with cp1252). |
-| `low_sample_strategy="mi_quantile"` | ✅ same | MIGT 1.1.1 ordering kept (see the discrepancies below). |
-| `low_sample_strategy="random"` | ✅ fixed | The reference image is no longer duplicated into test/val. |
+| `low_sample_strategy="mi_quantile"` | ✅ same; stratified since 1.1.0 | The two halves are used as strata; the MIGT 1.1.1 ordering is kept with `rounding="per_bin"` (see D7). |
+| `low_sample_strategy="random"` | ✅ fixed; default since 1.1.0 | The reference image is no longer duplicated into test/val. Random is the default, as in the papers. |
 | Adaptive histogram 4 → 3 → 2 | ✅ same | `histogram_convention="migt"` reproduces MIGT bin for bin (tested). |
 | Forced quantile-3 | ✅ same | Configurable through `fallback_quantiles` (the thesis studied 3, 4 and 5 and chose 3). |
 | Reference image always in train | ✅ same | |
 | No class skipping | ✅ same | |
-| Skipping of failed images | ✅ same, now reported | Recorded in `SplitResult.skipped()` with a reason. |
+| Skipping of failed images | ✅ fixed | Since 1.1.0 such images are split at random as an extra stratum and reported (`SplitResult.unscored()`); `unscored="skip"` keeps the MIGT behaviour, with a warning. |
+| Per-bin rounding | ✅ fixed | Since 1.1.0 split sizes are rounded per class (`rounding="class"`), so no split is left empty by rounding; `rounding="per_bin"` reproduces MIGT. |
 | `run(output_root)` | ✅ same, returns a `SplitResult` | |
 | — | ➕ `plan()`, JSON report, `from_thesis`, `RandomSplitter`, CLI, `n_jobs`, `processed_root`, ablation switches, plotting | New. |
 
@@ -125,7 +126,7 @@ preprocessing only changes the similarity input.
 | D4 | Empty bins | "any BL < MinBin" ⇒ an empty bin fails | Empty bins dropped before the test | `histogram_convention`. |
 | D5 | Colour MI estimator | §3.3: scikit-learn `mutual_info_score` | scikit-image NMI per channel | `color_mi` (`nmi` default, `mutual_info_score`). |
 | D6 | Low-sample classes | Not covered (all classes ≥ 100 images) | `random` / `mi_quantile` | Kept. `random`: duplicate-reference bug fixed. |
-| D7 | `mi_quantile` ordering | n/a | `[ref]+low+high` is split sequentially, so train holds mostly the low-MI half | Kept for fidelity to MIGT. The author may want to stratify each half in a future version. |
+| D7 | `mi_quantile` ordering | n/a | `[ref]+low+high` is split sequentially, so train holds mostly the low-MI half | Since 1.1.0 each half is a stratum; the MIGT ordering is kept with `rounding="per_bin"`. |
 | D8 | EM initialisation | "Randomly initialise the model parameters" | n/a (no GMM) | `gmm_init="kmeans"` default. This is scikit-learn's default and the thesis states it used scikit-learn with tol 0.001 / 100 iterations, which are also scikit-learn defaults. k-means initialisation is itself random and seeded. `gmm_init="random"` follows the literal wording. |
 | D9 | Dew class counts | Fig. 5.4: 704 (GMM-MIGT) vs 697 (MIGT) binned images; Table 3.3: 700 Dew images | n/a | Cannot be explained from the text. Possibly augmentation or images skipped by MIGT. Noted only. |
 

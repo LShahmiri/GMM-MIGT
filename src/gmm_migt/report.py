@@ -51,13 +51,14 @@ class ItemRecord:
 
     path: str
     split: str
-    role: str = "sample"  # "reference" | "sample"
+    role: str = "sample"  # "reference" | "sample" | "unscored"
     mi: Optional[float] = None
     normalized_mi: Optional[float] = None
     bin: Optional[int] = None
     gmm_converged: Optional[bool] = None
     gmm_n_iter: Optional[int] = None
     pca_components: Optional[List[int]] = None
+    reason: Optional[str] = None  # why an "unscored" image has no MI score
 
 
 @dataclass
@@ -156,7 +157,13 @@ class SplitResult:
         return t
 
     def skipped(self) -> List[Dict[str, str]]:
+        """Images left out of every split (only with ``unscored="skip"``)."""
         return [dict(s, cls=c) for c, r in self.classes.items() for s in r.skipped]
+
+    def unscored(self) -> List[Dict[str, str]]:
+        """Images without an MI score that were split at random as an extra stratum."""
+        return [{"path": it.path, "reason": it.reason or "", "split": it.split, "cls": c}
+                for c, r in self.classes.items() for it in r.items if it.role == "unscored"]
 
     def accounting(self) -> Dict[str, int]:
         """``{"found", "assigned", "skipped"}`` image counts over all classes."""
@@ -205,6 +212,10 @@ class SplitResult:
                      f"+ {acc['skipped']} skipped [{ok}]")
         if acc["skipped"]:
             lines.append(f"{acc['skipped']} image(s) skipped and not copied (see .skipped()).")
+        n_uns = len(self.unscored())
+        if n_uns:
+            lines.append(f"{n_uns} image(s) without an MI score were split at random as an extra "
+                         "stratum (see .unscored()).")
         return "\n".join(lines)
 
     # ---------------- serialisation ----------------

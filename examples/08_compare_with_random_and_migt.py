@@ -14,7 +14,7 @@ dataset = dataset_from_argv()
 ratios = dict(train=0.5, test=0.4, val=0.1, seed=42)
 
 gmm_migt = GMMMIGTSplitter.from_thesis(dataset, verbose=False, **ratios).run(output_dir("gmm_migt"))
-migt_like = GMMMIGTSplitter.from_thesis(dataset, use_gmm=False, use_pca=False, verbose=False,
+migt_like = GMMMIGTSplitter.from_thesis(dataset, method="migt", verbose=False,
                                         **ratios).run(output_dir("migt"))
 random_split = RandomSplitter(dataset, verbose=False, **ratios).run(output_dir("random"))
 

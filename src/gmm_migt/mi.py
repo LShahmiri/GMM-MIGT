@@ -164,9 +164,12 @@ def compute_mi(
         Images as returned by :func:`load_image` (or by
         :func:`gmm_migt.preprocess_image`).
     mode:
-        ``"auto"`` - grayscale MI if both images are grayscale, otherwise
-        colour MI; ``"grayscale"`` - always grayscale MI; ``"color"`` - always
-        channel-wise colour MI.
+        ``"auto"`` - grayscale MI if the first image (the reference) is
+        grayscale, otherwise colour MI; ``"grayscale"`` - always grayscale MI;
+        ``"color"`` - always channel-wise colour MI. For colour MI a grayscale
+        second image is replicated to three channels, so a black-and-white
+        photo in a colour class is scored on the same scale as the others
+        instead of failing.
     expected_size:
         ``None`` (strict): both images must already have the same height and
         width. ``(width, height)``: both images must have exactly this size.
@@ -188,10 +191,8 @@ def compute_mi(
 
     if mode == "grayscale":
         return compute_gray_mi(img1, img2)
-    if mode == "color":
-        return compute_color_mi(img1, img2, estimator=color_mi)
-
-    # auto
-    if is_grayscale(img1) and is_grayscale(img2):
+    if mode == "auto" and is_grayscale(img1):
         return compute_gray_mi(img1, img2)
+    if is_grayscale(img2) and not is_grayscale(img1):
+        img2 = np.repeat(img2.reshape(img2.shape[0], img2.shape[1], 1), 3, axis=2)
     return compute_color_mi(img1, img2, estimator=color_mi)

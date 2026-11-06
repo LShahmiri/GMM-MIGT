@@ -39,22 +39,42 @@ def many_sizes(make_ds):
     return root
 
 
+@pytest.mark.parametrize("rounding", ["class", "per_bin"])
 @pytest.mark.parametrize("convention", ["migt", "thesis"])
 @pytest.mark.parametrize("strategy", ["mi_quantile", "random"])
 @pytest.mark.parametrize("val", [None, 0.1])
 @pytest.mark.parametrize("min_bin", [1, 2, 4, 10, 13])
-def test_every_image_assigned_exactly_once(many_sizes, min_bin, val, strategy, convention):
+def test_every_image_assigned_exactly_once(many_sizes, min_bin, val, strategy, convention, rounding):
     train, test = (0.8, 0.2) if val is None else (0.5, 0.4)
     res = GMMMIGTSplitter(many_sizes, min_bin=min_bin, train=train, test=test, val=val,
                           low_sample_strategy=strategy, histogram_convention=convention,
-                          use_gmm=False, use_pca=False, verbose=False).plan()
+                          rounding=rounding, method="migt", verbose=False).plan()
+    n_splits = len(res.split_names)
     for n in SIZES:
         r = res.classes[f"c{n:02d}"]
         paths = [it.path for it in r.items]
         assert len(paths) == len(set(paths)) == n          # nothing lost, nothing twice
-        assert r.items[0].role == "reference" and r.items[0].split == "train"
+        if r.reference is not None:                        # MI-guided: reference first, in train
+            assert r.items[0].role == "reference" and r.items[0].split == "train"
         assert sum(r.counts.values()) == n
+        if rounding == "class" and n >= n_splits:          # no split left empty by rounding
+            assert min(r.counts[s] for s in res.split_names) >= 1, (n, r.strategy, r.counts)
     assert res.accounting() == {"found": sum(SIZES), "assigned": sum(SIZES), "skipped": 0}
+
+
+@pytest.mark.parametrize("val", [None, 0.1])
+def test_class_rounding_gives_exact_class_sizes(many_sizes, val):
+    from gmm_migt import class_counts
+    train, test = (0.8, 0.2) if val is None else (0.5, 0.4)
+    ratios = [train, test] + ([val] if val else [])
+    res = GMMMIGTSplitter(many_sizes, train=train, test=test, val=val, method="migt", verbose=False).plan()
+    for n in SIZES:
+        r = res.classes[f"c{n:02d}"]
+        got = [r.counts[s] for s in res.split_names]
+        want = class_counts(n, ratios)
+        if r.reference is not None and want[0] == 0:
+            want = None                                     # reference forces one train image
+        assert want is None or got == want, (n, got, want)
 
 
 @pytest.mark.parametrize("val", [None, 0.1])
@@ -76,14 +96,31 @@ def test_random_splitter_keeps_every_image(many_sizes, tmp_path):
     assert set(copied) == input_files(many_sizes) and all(len(s) == 1 for s in copied.values())
 
 
-def test_skipped_images_are_reported_and_warned(make_ds, tmp_path):
+def _class_with_bad_images(make_ds):
     root = make_ds({"c": 30})
     d = os.path.join(root, "c")
     cv2.imwrite(os.path.join(d, "zz_big.png"), np.random.default_rng(0).integers(0, 256, (40, 30, 3), dtype=np.uint8))
     with open(os.path.join(d, "zz_broken.jpg"), "wb") as f:
         f.write(b"broken")
-    with pytest.warns(UserWarning, match="2 image\\(s\\) could not be MI-scored.*resize_to"):
+    return root
+
+
+def test_unscored_images_are_included_and_warned(make_ds, tmp_path):
+    root = _class_with_bad_images(make_ds)
+    with pytest.warns(UserWarning, match=r"2 image\(s\) could not be MI-scored and were split at random"):
         res = GMMMIGTSplitter(root, verbose=False).run(str(tmp_path / "out"))
+    assert res.accounting() == {"found": 32, "assigned": 32, "skipped": 0}
+    assert len(output_files(str(tmp_path / "out"))) == 32          # no image lost
+    uns = res.unscored()
+    assert sorted(os.path.basename(u["path"]) for u in uns) == ["zz_big.png", "zz_broken.jpg"]
+    assert all(u["reason"] for u in uns)
+    assert "2 image(s) without an MI score" in res.summary()
+
+
+def test_skipped_images_are_reported_and_warned(make_ds, tmp_path):
+    root = _class_with_bad_images(make_ds)
+    with pytest.warns(UserWarning, match=r"2 image\(s\) could not be MI-scored.*resize_to"):
+        res = GMMMIGTSplitter(root, unscored="skip", verbose=False).run(str(tmp_path / "out"))
     assert res.accounting() == {"found": 32, "assigned": 30, "skipped": 2}
     assert len(output_files(str(tmp_path / "out"))) == 30
     assert "32 image(s) found = 30 assigned + 2 skipped [OK]" in res.summary()
@@ -98,8 +135,16 @@ def test_warning_when_a_class_gets_no_test_image(make_ds):
     root = make_ds({"five": 5})
     # 4 MI values -> forced quantile parts of 1, 1, 2 images -> floor(0.2 * k) = 0 test images
     with pytest.warns(UserWarning, match=r"No image assigned to: five \(test\)"):
-        res = GMMMIGTSplitter(root, min_bin=4, use_gmm=False, use_pca=False, verbose=False).plan()
+        res = GMMMIGTSplitter(root, min_bin=4, rounding="per_bin", method="migt", verbose=False).plan()
     assert res.classes["five"].counts["test"] == 0 and sum(res.classes["five"].counts.values()) == 5
+
+
+def test_class_rounding_fills_test_of_small_forced_quantile_class(make_ds, recwarn):
+    root = make_ds({"five": 5})
+    res = GMMMIGTSplitter(root, min_bin=4, method="migt", verbose=False).plan()
+    assert res.classes["five"].strategy == "forced_quantile"
+    assert res.classes["five"].counts == {"train": 4, "test": 1, "val": 0}
+    assert not [w for w in recwarn if "No image assigned" in str(w.message)]
 
 
 def test_reusing_output_directory_is_refused(dataset, tmp_path):

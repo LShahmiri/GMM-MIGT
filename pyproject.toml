@@ -48,6 +48,7 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.23",
+  "scipy>=1.8",
   "scikit-learn>=1.2",
   "scikit-image>=0.19",
   "opencv-python>=4.5",

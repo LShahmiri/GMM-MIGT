@@ -38,9 +38,11 @@ from .exceptions import ConfigurationError, ImageLoadError, ImageShapeError
 from .mi import COLOR_MI_ESTIMATORS, MI_MODES, compute_mi, is_grayscale, load_image, save_image
 from .preprocessing import PreprocessingConfig, preprocess_image
 from .report import REPORT_FILENAME, BinSummary, ClassReport, ItemRecord, SplitResult
-from .utils import list_classes, list_images, split_counts
+from .utils import ROUNDING_MODES, list_classes, list_images, split_counts, stratified_counts
 
 LOW_SAMPLE_STRATEGIES = ("mi_quantile", "random")
+METHODS = ("gmm_migt", "migt")
+UNSCORED_MODES = ("include", "skip")
 
 
 # --------------------------------------------------
@@ -99,8 +101,8 @@ class GMMMIGTSplitter:
         Initial number of histogram bins; reduced one by one down to 2.
     min_bin:
         Minimum number of samples required in every histogram bin (default
-        10, the thesis value; the MIGT 1.1.1 code uses 13). Classes with
-        ``<= min_bin`` images use ``low_sample_strategy``.
+        10, the value of the papers; the MIGT 1.1.1 code used 13). Classes
+        with ``<= min_bin`` images use ``low_sample_strategy``.
     train, test, val:
         Split ratios (must be > 0 and sum to 1). ``val=None`` creates only
         train and test.
@@ -115,15 +117,18 @@ class GMMMIGTSplitter:
     verbose:
         Print progress.
     low_sample_strategy:
-        ``"mi_quantile"`` (two MI portions) or ``"random"`` for small classes.
+        Small classes (``<= min_bin`` images): ``"random"`` (default, as in
+        the papers) or ``"mi_quantile"`` (two MI portions used as strata).
     use_gmm, n_components, gmm_tol, gmm_max_iter, gmm_covariance_type,
     gmm_init, gmm_reg_covar, gmm_max_pixels:
         EM-GMM colour reduction (thesis Section 5.2.1). Defaults are the
         thesis values: K = 4, tolerance 0.001, 100 iterations, full
-        covariances.
+        covariances. ``use_gmm`` defaults to ``True`` for
+        ``method="gmm_migt"``.
     use_pca, pca_variance:
         Per-channel PCA reconstruction keeping a Cumulative Percent Variance
         of ``pca_variance`` (thesis Section 5.2.2; default 0.95).
+        ``use_pca`` defaults to ``True`` for ``method="gmm_migt"``.
     color_mi:
         Colour MI estimator: ``"nmi"`` (MIGT 1.1.1) or
         ``"mutual_info_score"`` (thesis Section 3.3).
@@ -140,6 +145,22 @@ class GMMMIGTSplitter:
         If given, the processed (EM-GMM + PCA) images are saved as PNG to
         ``processed_root/<class>/`` (the "Processed images" output of
         Algorithm 5.1).
+    method:
+        ``"gmm_migt"`` (default): EM-GMM + PCA preprocessing before MI.
+        ``"migt"``: MIGT, i.e. MI on the original images (no preprocessing).
+    rounding:
+        ``"class"`` (default): the train/test/val sizes are rounded once for
+        the whole class (largest remainder, at least one image per split when
+        the class has enough images) and then spread over the bins in
+        proportion to their size, so no split is left empty by rounding.
+        ``"per_bin"``: every bin is rounded separately and the remainder goes
+        to train (versions <= 1.0.1; can leave test/val empty).
+    unscored:
+        Images whose MI cannot be computed (unreadable, different size with
+        ``strict_shape=True``, numerical failure). ``"include"`` (default):
+        they form an extra stratum that is split at random, so no image is
+        lost; a warning lists them. ``"skip"``: they are left out of every
+        split, with a warning (versions <= 1.0.1).
 
     Examples
     --------
@@ -162,9 +183,9 @@ class GMMMIGTSplitter:
         resize_to: Optional[Tuple[int, int]] = None,
         seed: int = 42,
         verbose: bool = True,
-        low_sample_strategy: str = "mi_quantile",  # "mi_quantile" | "random"
+        low_sample_strategy: str = "random",  # "random" | "mi_quantile"
         # ---- GMM-MIGT preprocessing (thesis Section 5.2 / Algorithm 5.1) ----
-        use_gmm: bool = True,
+        use_gmm: Optional[bool] = None,
         n_components: int = 4,
         gmm_tol: float = 1e-3,
         gmm_max_iter: int = 100,
@@ -172,7 +193,7 @@ class GMMMIGTSplitter:
         gmm_init: str = "kmeans",
         gmm_reg_covar: float = 1e-6,
         gmm_max_pixels: Optional[int] = None,
-        use_pca: bool = True,
+        use_pca: Optional[bool] = None,
         pca_variance: float = 0.95,
         # ---- MI / binning options ----
         color_mi: str = "nmi",
@@ -181,8 +202,15 @@ class GMMMIGTSplitter:
         # ---- execution ----
         n_jobs: int = 1,
         processed_root: Optional[str] = None,
+        # ---- method, rounding, unscored images ----
+        method: str = "gmm_migt",
+        rounding: str = "class",
+        unscored: str = "include",
     ):
         self.dataset_root = os.fspath(dataset_root)
+        self.method = method
+        self.rounding = rounding
+        self.unscored = unscored
         self.mode = mode
         self.start_bins = bins
         self.min_bin = min_bin
@@ -216,6 +244,15 @@ class GMMMIGTSplitter:
                     else f" With val=None, train + test must be 1 (or pass val={1 - s:g} for a three-way split).")
             raise ConfigurationError(f"train/test/val ratios must sum to 1.0 (got {s:g}).{hint}")
 
+        if method == "migt":
+            if use_gmm or use_pca:
+                raise ConfigurationError("method='migt' uses no preprocessing; do not set use_gmm/use_pca "
+                                         "to True (use method='gmm_migt').")
+            use_gmm = use_pca = False
+        else:
+            use_gmm = True if use_gmm is None else bool(use_gmm)
+            use_pca = True if use_pca is None else bool(use_pca)
+
         self.preprocessing = PreprocessingConfig(
             use_gmm=use_gmm,
             n_components=n_components,
@@ -240,7 +277,11 @@ class GMMMIGTSplitter:
         * ``min_bin=10`` and ``train/test/val = 0.5/0.4/0.1`` (Section 4.2.2),
         * ``histogram_convention="thesis"`` (Algorithm 1, Figures 4.6-4.12),
         * ``bins=4``, ``n_components=4``, ``gmm_tol=0.001``,
-          ``gmm_max_iter=100``, ``pca_variance=0.95`` (Algorithm 5.1).
+          ``gmm_max_iter=100``, ``pca_variance=0.95`` (Algorithm 5.1),
+        * small classes split at random (``low_sample_strategy="random"``),
+        * every bin rounded separately (``rounding="per_bin"``), as in the
+          code used for the thesis; pass ``rounding="class"`` to avoid
+          empty test/val splits in small classes.
 
         Any argument can be overridden by keyword.
         """
@@ -255,6 +296,8 @@ class GMMMIGTSplitter:
             gmm_tol=1e-3,
             gmm_max_iter=100,
             pca_variance=0.95,
+            low_sample_strategy="random",
+            rounding="per_bin",
         )
         params.update(overrides)
         return cls(dataset_root, **params)
@@ -294,11 +337,18 @@ class GMMMIGTSplitter:
             raise ConfigurationError(f"n_jobs must be a non-zero integer (got {self.n_jobs!r}).")
         if self.seed is not None and (not isinstance(self.seed, (int, np.integer)) or isinstance(self.seed, bool)):
             raise ConfigurationError(f"seed must be an integer or None (got {self.seed!r}).")
+        if self.method not in METHODS:
+            raise ConfigurationError(f"method must be one of {METHODS} (got {self.method!r}).")
+        if self.rounding not in ROUNDING_MODES:
+            raise ConfigurationError(f"rounding must be one of {ROUNDING_MODES} (got {self.rounding!r}).")
+        if self.unscored not in UNSCORED_MODES:
+            raise ConfigurationError(f"unscored must be one of {UNSCORED_MODES} (got {self.unscored!r}).")
 
     def get_config(self) -> Dict[str, Any]:
         """All parameters of this splitter (stored in every report)."""
         p = self.preprocessing
         return {
+            "method": self.method,
             "dataset_root": os.path.abspath(self.dataset_root),
             "mode": self.mode,
             "bins": self.start_bins,
@@ -323,6 +373,8 @@ class GMMMIGTSplitter:
             "color_mi": self.color_mi,
             "histogram_convention": self.histogram_convention,
             "fallback_quantiles": self.fallback_quantiles,
+            "rounding": self.rounding,
+            "unscored": self.unscored,
         }
 
     def __repr__(self) -> str:
@@ -357,6 +409,41 @@ class GMMMIGTSplitter:
             else:
                 out[p] = "val" if self.val is not None else "test"
         return out
+
+    def _split_strata(self, strata: Sequence[Sequence[str]], rng: random.Random,
+                      ref: Optional[str] = None) -> Dict[str, str]:
+        """Shuffle every stratum and assign its images to the splits.
+
+        ``ref`` (if given) is put in train. With ``rounding="class"`` the split
+        sizes are fixed for the whole class first (:func:`stratified_counts`);
+        with ``"per_bin"`` every stratum is rounded on its own.
+        """
+        shuffled = []
+        for paths in strata:
+            p = list(paths)
+            rng.shuffle(p)
+            shuffled.append(p)
+        out: Dict[str, str] = {ref: "train"} if ref is not None else {}
+        if self.rounding == "per_bin":
+            for p in shuffled:
+                out.update(self._assign(p))
+            return out
+        names = ["train", "test", "val"][:len(self.ratios)]
+        counts = stratified_counts([len(p) for p in shuffled], self.ratios, 1 if ref is not None else 0)
+        for p, c in zip(shuffled, counts):
+            k = 0
+            for split, m in zip(names, c):
+                out.update({x: split for x in p[k:k + m]})
+                k += m
+        return out
+
+    def _unscored_items(self, scores: Sequence[Dict[str, Any]], report: ClassReport) -> List[str]:
+        """Unscored images: returned as an extra stratum (``"include"``) or recorded as skipped."""
+        failed = [s for s in scores if s["mi"] is None]
+        if self.unscored == "skip":
+            report.skipped = [{"path": s["path"], "reason": s["reason"]} for s in failed]
+            return []
+        return [s["path"] for s in failed]
 
     def _processed_paths(self, cls: str, images: Sequence[str]) -> Dict[str, Optional[str]]:
         if self.processed_root is None:
@@ -463,22 +550,32 @@ class GMMMIGTSplitter:
     def _low_sample_split(self, cls: str, images: List[str], report: ClassReport, rng: random.Random) -> None:
         """Called ONLY when ``len(images) <= min_bin`` (as in MIGT).
 
-        - ``random``: random order; the reference image is placed in train.
-        - ``mi_quantile``: MI-sorted halves, each shuffled; ``[ref] + low +
-          high`` is split by the ratios (MIGT 1.1.1 behaviour).
+        - ``random``: all images of the class are split at random by the
+          ratios (no reference image).
+        - ``mi_quantile``: the reference goes to train and the two MI-sorted
+          halves are used as strata.
+
+        With ``rounding="per_bin"`` the behaviour of versions <= 1.0.1 is kept:
+        the reference takes the first train slot of the random split, and the
+        MI quantile split assigns ``[ref] + low + high`` in this order.
         """
         ref = images[0]
         others = images[1:]
 
         def random_split(paths: List[str], strategy: str) -> None:
-            paths = paths[:]
-            rng.shuffle(paths)
-            # The reference occupies the first train slot, so it is never
-            # duplicated into test/val (MIGT 1.1.1 copied it a second time).
-            assigned = self._assign([ref] + paths)
             report.strategy = strategy
-            report.items = [self._item(ref, assigned[ref], None, None, None, "reference")]
-            report.items += [self._item(p, assigned[p], None, None, None) for p in paths]
+            if self.rounding == "per_bin":
+                paths = paths[:]
+                rng.shuffle(paths)
+                # The reference occupies the first train slot, so it is never
+                # duplicated into test/val (MIGT 1.1.1 copied it a second time).
+                assigned = self._assign([ref] + paths)
+                report.items = [self._item(ref, assigned[ref], None, None, None, "reference")]
+                report.items += [self._item(p, assigned[p], None, None, None) for p in paths]
+                return
+            report.reference = None
+            assigned = self._split_strata([images], rng)
+            report.items = [self._item(p, assigned[p], None, None, None) for p in images]
 
         # ---- RANDOM ----
         if self.low_sample_strategy == "random":
@@ -498,24 +595,32 @@ class GMMMIGTSplitter:
             random_split(others, "low_sample_random_fallback")
             return
 
-        report.skipped = [{"path": s["path"], "reason": s["reason"]} for s in scores if s["mi"] is None]
+        unscored = self._unscored_items(scores, report)
         halves = forced_quantile_split(mi_list, 2)
         mi_max = max(mi for _, mi in mi_list)
         report.mi_max = mi_max
         report.bins = self._bin_summaries(halves, mi_max, histogram=False)
         report.strategy = "low_sample_mi_quantile"
 
-        ordered: List[str] = []
-        bin_of: Dict[str, int] = {}
-        for i, h in enumerate(halves):
-            paths = [p for p, _ in h.items]
-            rng.shuffle(paths)
-            ordered += paths
-            bin_of.update({p: i for p in paths})
-
-        assigned = self._assign([ref] + ordered)
+        if self.rounding == "per_bin":
+            ordered: List[str] = []
+            bin_of: Dict[str, int] = {}
+            for i, h in enumerate(halves):
+                paths = [p for p, _ in h.items]
+                rng.shuffle(paths)
+                ordered += paths
+                bin_of.update({p: i for p in paths})
+            assigned = self._assign([ref] + ordered)
+            if unscored:
+                assigned.update(self._split_strata([unscored], rng))
+        else:
+            strata = [[p for p, _ in h.items] for h in halves]
+            bin_of = {p: i for i, s in enumerate(strata) for p in s}
+            assigned = self._split_strata(strata + ([unscored] if unscored else []), rng, ref)
         report.items = [self._item(ref, assigned[ref], None, mi_max, None, "reference")]
-        report.items += [self._item(p, assigned[p], by_path[p], mi_max, bin_of[p]) for p in ordered]
+        report.items += [self._item(p, assigned[p], by_path[p], mi_max, bin_of[p])
+                         for p in others if p in bin_of]
+        report.items += [self._unscored_item(p, assigned[p], by_path[p]) for p in unscored]
 
     # --------------------------------------------------
     # One class
@@ -549,12 +654,14 @@ class GMMMIGTSplitter:
         scores = self._score_images(ref_proc, images[1:], processed)
         by_path = {s["path"]: s for s in scores}
         mi_list = [(s["path"], s["mi"]) for s in scores if s["mi"] is not None]
-        report.skipped = [{"path": s["path"], "reason": s["reason"]} for s in scores if s["mi"] is None]
+        unscored = self._unscored_items(scores, report)
 
         self._log(f"  Valid MI values: {len(mi_list)} / {len(images) - 1}")
-        if report.skipped:
-            self._log(f"  Skipped {len(report.skipped)} image(s) whose MI could not be computed "
-                      f"(e.g. {report.skipped[0]['reason']})")
+        failed = [s for s in scores if s["mi"] is None]
+        if failed:
+            what = "split at random as an extra stratum" if unscored else "skipped"
+            self._log(f"  {len(failed)} image(s) whose MI could not be computed are {what} "
+                      f"(e.g. {failed[0]['reason']})")
 
         attempts: List[HistogramAttempt] = []
         histogram = True
@@ -585,13 +692,18 @@ class GMMMIGTSplitter:
         self._log(f"  Using bins={len(bins)} | sizes={[b.size for b in bins]}")
 
         # split each bin (ONLY MI images); ref is not in bins, it goes to train.
+        strata = [[p for p, _ in b.items] for b in bins]
+        bin_of = {p: i for i, s in enumerate(strata) for p in s}
+        assigned = self._split_strata(strata + ([unscored] if unscored else []), rng, ref)
         report.items = [self._item(ref, "train", None, mi_max, None, "reference")]
-        for i, b in enumerate(bins):
-            paths = [p for p, _ in b.items]
-            rng.shuffle(paths)
-            assigned = self._assign(paths)
-            report.items += [self._item(p, assigned[p], by_path[p], mi_max, i) for p in paths]
+        report.items += [self._item(p, assigned[p], by_path[p], mi_max, bin_of[p])
+                         for s in strata for p in s]
+        report.items += [self._unscored_item(p, assigned[p], by_path[p]) for p in unscored]
         return report
+
+    @staticmethod
+    def _unscored_item(path: str, split: str, score: Dict[str, Any]) -> ItemRecord:
+        return ItemRecord(path=path, split=split, role="unscored", reason=score.get("reason"))
 
     # --------------------------------------------------
     # Main
@@ -604,7 +716,8 @@ class GMMMIGTSplitter:
         ``result.skipped()``. Skipped images also trigger a ``UserWarning``.
         """
         rng = random.Random(self.seed)
-        result = SplitResult(config=self.get_config(), version=__version__)
+        result = SplitResult(config=self.get_config(), version=__version__,
+                             method="MIGT" if self.method == "migt" else "GMM-MIGT")
         for cls in list_classes(self.dataset_root):
             result.classes[cls] = self._plan_class(cls, rng)
         result.verify(self.dataset_root)
@@ -618,15 +731,24 @@ class GMMMIGTSplitter:
                 UserWarning,
                 stacklevel=2,
             )
+        unscored = result.unscored()
+        if unscored:
+            warnings.warn(
+                f"{len(unscored)} image(s) could not be MI-scored and were split at random as an extra "
+                f"stratum of their class, e.g. {unscored[0]['path']} ({unscored[0]['reason']}). "
+                "See result.unscored().",
+                UserWarning,
+                stacklevel=2,
+            )
         names = result.split_names
         empty = [f"{c} ({s})" for c, r in result.classes.items()
                  if r.n_images >= len(names) for s in names if r.counts[s] == 0]
         if empty:
+            why = ("Each bin is split separately and rounding gives the remainder to train, so bins "
+                   "smaller than about 1/ratio images add nothing to test/val. Use rounding='class'."
+                   if self.rounding == "per_bin" else "")
             warnings.warn(
-                f"No image assigned to: {', '.join(empty[:5])}{' ...' if len(empty) > 5 else ''}. "
-                "Each bin is split separately and rounding gives the remainder to train, so bins "
-                "smaller than about 1/ratio images add nothing to test/val. A larger min_bin gives "
-                "larger bins.",
+                f"No image assigned to: {', '.join(empty[:5])}{' ...' if len(empty) > 5 else ''}. {why}",
                 UserWarning,
                 stacklevel=2,
             )

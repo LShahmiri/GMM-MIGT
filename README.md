@@ -130,10 +130,18 @@ partition itself copies the **original**, unmodified image files.
 | Python package | `migt` / `MIGTSplitter` | `gmm-migt` / `GMMMIGTSplitter` |
 
 `GMMMIGTSplitter` accepts **every `MIGTSplitter` argument**, with the same
-name and meaning. All defaults are the same except `min_bin`, which is 10 in
-GMM-MIGT (the thesis value; 13 in the MIGT 1.1.1 code). With `use_gmm=False, use_pca=False` and the
-same `min_bin` it reproduces the partitions of MIGT 1.1.1 exactly. This is
-checked by the automated test suite for `min_bin=10` and `min_bin=13`.
+name and meaning. **MIGT is available in this package** with
+`method="migt"` (MI on the original images, no preprocessing):
+
+```python
+GMMMIGTSplitter("dataset")                  # GMM-MIGT (default)
+GMMMIGTSplitter("dataset", method="migt")   # MIGT
+```
+
+With `method="migt"`, `rounding="per_bin"`, `low_sample_strategy="mi_quantile"`
+and `unscored="skip"` it reproduces the partitions of MIGT 1.1.1 exactly
+(checked by the test suite when `migt` is installed). The same options
+reproduce gmm-migt 1.0.1.
 
 **Thesis vs. MIGT 1.1.1 code.** A few values in the published MIGT code
 differ from those reported in the thesis. Apart from `min_bin`, GMM-MIGT
@@ -147,32 +155,39 @@ through `GMMMIGTSplitter.from_thesis(...)`:
 | bin intervals | `[a, b)`, last `[a, b]` | `[a, b]`, then `(a, b]` (figure labels) |
 | empty histogram bin | dropped, remaining bins tested | counts as a bin with < `min_bin` samples |
 
-One fix is applied in all configurations. With
-`low_sample_strategy="random"`, MIGT 1.1.1 could copy the reference image
-into both *train* and *test*, which leaks data. GMM-MIGT always places it in
-*train* only.
+**No data leakage.** With `low_sample_strategy="random"`, MIGT 1.1.1 could
+copy the reference image into both *train* and *test*. GMM-MIGT never puts
+an image into two splits.
+
+**Small classes are split at random**, as in the papers
+(`low_sample_strategy="random"`, the default since 1.1.0). With
+`low_sample_strategy="mi_quantile"` the two MI halves are used as strata,
+so that test and validation images come from both halves.
 
 **No image is lost silently.** Every `plan()` and `run()` checks that each
-image file of each class is in exactly one split, or is listed in
-`result.skipped()` with the reason. An image is skipped only when its MI
-cannot be computed: the file cannot be decoded, or, with
-`strict_shape=True`, its size differs from the reference image. As in MIGT,
-skipped images are not copied, but GMM-MIGT also raises a `UserWarning`;
-use `strict_shape=False, resize_to=(w, h)` to include images of other sizes.
-After copying, `run()` checks that every output folder holds exactly the
-planned files with the sizes of the originals. It refuses an output folder
-that already contains images, so a second run cannot put one image into two
-splits. `summary()` ends with a line such as
+image file of each class is in exactly one split. If the MI of an image
+cannot be computed (the file cannot be decoded, its size differs from the
+reference image with `strict_shape=True`, or a numerical failure), the image
+is put into an extra stratum of its class that is split at random, and a
+`UserWarning` lists it (`result.unscored()` gives the reasons). With
+`unscored="skip"` such images are left out instead (behaviour up to 1.0.1),
+again with a warning and listed in `result.skipped()`. Grayscale photos in
+a colour class are scored on the colour scale (replicated to three channels)
+instead of failing. After copying, `run()` checks that every output folder
+holds exactly the planned files with the sizes of the originals. It refuses
+an output folder that already contains images, so a second run cannot put
+one image into two splits. `summary()` ends with a line such as
 `Check: 98 image(s) found = 98 assigned + 0 skipped [OK]`. Any violation
 raises `IntegrityError`.
 
-**Small bins and empty test sets.** As in MIGT, every bin is split
-separately and the rounding remainder goes to train. With 80/20, a bin of
-fewer than 5 images therefore adds no test image. This can happen in the
-forced-quantile fallback: a 12-image class whose histogram fails is split
-into MI parts of 3, 4 and 4 images and ends with 12 train and 0 test images. Nothing is
-lost, but GMM-MIGT warns when a class gets no image in a split. A larger
-`min_bin` gives larger bins.
+**No split left empty by rounding.** Since 1.1.0 the train/test/val sizes
+are rounded once per class (largest remainder, at least one image per split
+when the class has at least as many images as splits) and then spread over
+the bins in proportion to their sizes (`rounding="class"`). Example with
+70/20/10: a 15-image class whose histogram fails is split into MI parts of
+4, 5 and 5 images; it now gets 11/3/1 images, whereas rounding every bin
+separately (`rounding="per_bin"`, up to 1.0.1) gave 13/2/0. GMM-MIGT warns
+if a class still gets no image in a split.
 
 ## 4. Installation
 
@@ -187,7 +202,7 @@ pip install "gmm-migt[plot]"   # histogram plots (matplotlib)
 pip install "gmm-migt[dev]"    # tests, build and twine
 ```
 
-Requirements: Python ≥ 3.9, NumPy, scikit-learn, scikit-image,
+Requirements: Python ≥ 3.9, NumPy, SciPy, scikit-learn, scikit-image,
 opencv-python, joblib and tqdm.
 
 To install from source:
@@ -210,7 +225,8 @@ dataset/
 ```python
 from gmm_migt import GMMMIGTSplitter
 
-splitter = GMMMIGTSplitter(dataset_root="path/to/dataset")
+splitter = GMMMIGTSplitter(dataset_root="path/to/dataset")              # GMM-MIGT
+# splitter = GMMMIGTSplitter(dataset_root="path/to/dataset", method="migt")   # MIGT
 result = splitter.run(output_root="gmm_migt_output")
 print(result.summary())
 ```
@@ -233,6 +249,7 @@ From the command line:
 
 ```bash
 gmm-migt path/to/dataset gmm_migt_output
+gmm-migt path/to/dataset migt_output --method migt
 gmm-migt path/to/dataset gmm_migt_output --thesis --n-components 4 --pca-variance 0.95
 gmm-migt path/to/dataset --dry-run          # print the partition, copy nothing
 ```
@@ -248,12 +265,15 @@ preprocessing options.
 | Colour MI estimator | `color_mi` | `"nmi"` (scikit-image normalised MI, as in MIGT 1.1.1) · `"mutual_info_score"` (scikit-learn MI per channel, thesis Section 3.3) |
 | **Image size** | `strict_shape`, `resize_to` | strict (images must match the reference image's size, others are skipped) · resize in memory to `(w, h)` |
 | **Splits** | `train`, `test`, `val` | two-way (`val=None`) or three-way |
-| **Small classes** (≤ `min_bin` images) | `low_sample_strategy` | `"mi_quantile"` (two MI portions) · `"random"` |
+| **Method** | `method` | `"gmm_migt"` (EM-GMM + PCA, then MI) · `"migt"` (MI on the original images) |
+| **Small classes** (≤ `min_bin` images) | `low_sample_strategy` | `"random"` (default, as in the papers) · `"mi_quantile"` (two MI halves as strata) |
+| Rounding | `rounding` | `"class"` (default, no empty split) · `"per_bin"` (up to 1.0.1) |
+| Images without MI score | `unscored` | `"include"` (default, random extra stratum) · `"skip"` (up to 1.0.1) |
 | Histogram fallback | `fallback_quantiles` | equal MI portions when 2 bins fail (default 3) |
 | Histogram convention | `histogram_convention` | `"migt"` (MIGT 1.1.1 code) · `"thesis"` |
 | **EM-GMM** | `use_gmm`, `n_components`, `gmm_*` | on/off, `K`, tolerance, iterations, covariance type, initialisation, pixel subsampling |
 | **PCA** | `use_pca`, `pca_variance` | on/off, CPV threshold |
-| Ablations | `use_gmm` / `use_pca` | GMM-MIGT · EM-GMM only · PCA only · none (= MIGT) |
+| Ablations | `use_gmm` / `use_pca` | GMM-MIGT · EM-GMM only · PCA only · none (= `method="migt"`) |
 | Execution | `n_jobs`, `processed_root`, `plan()`, `run()` | parallel processes · save processed images · dry run · copy |
 | Baseline | `RandomSplitter` | random per-class partition with the same outputs |
 
@@ -262,7 +282,7 @@ The decision logic applied to each class is identical to MIGT:
 | Situation | Strategy (`ClassReport.strategy`) |
 |---|---|
 | Class has no images | `empty` (folders are still created) |
-| Class size ≤ `min_bin` | `low_sample_mi_quantile` or `low_sample_random` (user choice); `low_sample_random_fallback` if fewer than 2 MI values |
+| Class size ≤ `min_bin` | `low_sample_random` (default) or `low_sample_mi_quantile`; `low_sample_random_fallback` if fewer than 2 MI values |
 | Histogram with `bins` → … → 2 bins succeeds | `histogram` |
 | Histogram fails at 2 bins, or fewer than 3 MI values | `forced_quantile` (never random) |
 
@@ -276,7 +296,7 @@ The main class. All parameters are listed in [Section 8](#8-parameters).
 |---|---|
 | `plan() -> SplitResult` | Compute the partition without copying files. |
 | `run(output_root, write_report=True) -> SplitResult` | Compute the partition and copy the original images into `output_root/<split>/<class>/`. Optionally write `gmm_migt_report.json`. |
-| `from_thesis(dataset_root, **overrides)` (classmethod) | Splitter with the thesis values (`min_bin=10`, 0.5/0.4/0.1, `histogram_convention="thesis"`). |
+| `from_thesis(dataset_root, **overrides)` (classmethod) | Splitter with the thesis values (`min_bin=10`, 0.5/0.4/0.1, `histogram_convention="thesis"`, random small classes, `rounding="per_bin"` as in the thesis code). |
 | `get_config() -> dict` | All parameters (stored in every report). |
 
 ### `SplitResult`
@@ -286,7 +306,8 @@ The main class. All parameters are listed in [Section 8](#8-parameters).
 | `classes: dict[str, ClassReport]` | Per-class records. |
 | `splits()` | `{split: {class: [paths]}}`. |
 | `counts()`, `totals()` | Image counts per class / split. |
-| `skipped()` | Images whose MI could not be computed, with the reason. |
+| `unscored()` | Images whose MI could not be computed and that were split at random, with the reason. |
+| `skipped()` | Images left out of every split (only with `unscored="skip"`), with the reason. |
 | `accounting()` | `{"found", "assigned", "skipped"}` image counts (found = assigned + skipped). |
 | `verify(dataset_root=None)` | Raise `IntegrityError` if an image is missing, duplicated or in an unknown split; with `dataset_root`, also compare with the files on disk. |
 | `summary()` | Text table, ending with the image-count check. |
@@ -297,8 +318,9 @@ The main class. All parameters are listed in [Section 8](#8-parameters).
 `mi_max`, `histogram_attempts` (every tried bin count with its bin sizes),
 `bins` (`BinSummary`: size, MI range, normalised interval, label) and
 `items`. Each item is an `ItemRecord` with `path`, `split`, `role`, `mi`,
-`normalized_mi`, `bin`, `gmm_converged`, `gmm_n_iter` and
-`pca_components`. It also has `skipped`, `counts` and `paths(split)`.
+`normalized_mi`, `bin`, `gmm_converged`, `gmm_n_iter`, `pca_components`
+and `reason` (for `role="unscored"`). It also has `skipped`, `counts` and
+`paths(split)`.
 
 ### Preprocessing functions
 
@@ -323,7 +345,9 @@ The main class. All parameters are listed in [Section 8](#8-parameters).
 | `forced_quantile_split(mi_list, n_parts=3)` | Equal portions of the sorted MI values. |
 | `normalise_mi(values)` | Eq. 4.9. |
 | `interval_labels(edges, convention)` | Labels such as `"[0.04, 0.28]"`, `"(0.28, 0.52]"`. |
-| `split_counts(n, ratios)` | Per-split counts that sum to `n`. The remainder goes to train. |
+| `class_counts(n, ratios, min_one=True)` | Per-split counts of a class (largest remainder, at least one per split when possible). |
+| `stratified_counts(sizes, ratios, n_fixed_train=0)` | Class counts spread over bins in proportion to their sizes (`rounding="class"`). |
+| `split_counts(n, ratios)` | Floor rounding, remainder to train (`rounding="per_bin"`). |
 
 Other members: `RandomSplitter(dataset_root, train, test, val, seed)` with
 `plan()` and `run()`; `gmm_migt.plotting.plot_class_histogram(class_report)`;
@@ -347,13 +371,13 @@ and the exceptions `GMMMIGTError`, `ConfigurationError`, `ImageLoadError`,
 | `resize_to` | (w, h) or None | `None` | Resize in memory (required if `strict_shape=False`). |
 | `seed` | int | `42` | Seed for shuffling and the EM-GMM initialisation. |
 | `verbose` | bool | `True` | Print progress. |
-| `low_sample_strategy` | str | `"mi_quantile"` | `mi_quantile` or `random` for small classes. |
+| `low_sample_strategy` | str | `"random"` | `random` (as in the papers) or `mi_quantile` for small classes. |
 
 **GMM-MIGT preprocessing** (defaults are the thesis values, Algorithm 5.1):
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `use_gmm` | bool | `True` | Apply EM-GMM colour reduction. |
+| `use_gmm` | bool or None | `None` | Apply EM-GMM colour reduction (`None` = on for `gmm_migt`, off for `migt`). |
 | `n_components` | int | `4` | Number of GMM clusters `K`. The thesis tested K = 2…6 and chose 4. |
 | `gmm_tol` | float | `0.001` | EM convergence threshold (change of the mean log-likelihood). |
 | `gmm_max_iter` | int | `100` | Maximum number of EM iterations. |
@@ -361,13 +385,16 @@ and the exceptions `GMMMIGTError`, `ConfigurationError`, `ImageLoadError`,
 | `gmm_init` | str | `"kmeans"` | EM initialisation: `kmeans` (scikit-learn default, seeded), `k-means++`, `random` or `random_from_data`. |
 | `gmm_reg_covar` | float | `1e-6` | Regularisation added to the covariance diagonals. |
 | `gmm_max_pixels` | int or None | `None` | Fit the GMM on a seeded random subset of at most this many pixels, then apply it to all pixels. Useful for very large images. `None` = all pixels (thesis). |
-| `use_pca` | bool | `True` | Apply per-channel PCA reconstruction. |
+| `use_pca` | bool or None | `None` | Apply per-channel PCA reconstruction (`None` = on for `gmm_migt`, off for `migt`). |
 | `pca_variance` | float | `0.95` | CPV threshold in (0, 1]. |
 
 **Additional options:**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
+| `method` | str | `"gmm_migt"` | `gmm_migt` or `migt` (no preprocessing). |
+| `rounding` | str | `"class"` | `class`: split sizes rounded per class, no empty split; `per_bin`: every bin rounded separately (up to 1.0.1). |
+| `unscored` | str | `"include"` | Images without MI score: `include` (random extra stratum) or `skip` (left out, up to 1.0.1). Both warn. |
 | `color_mi` | str | `"nmi"` | Colour MI estimator (`nmi` or `mutual_info_score`). |
 | `histogram_convention` | str | `"migt"` | `migt` or `thesis` (see Section 3). |
 | `fallback_quantiles` | int | `3` | Number of equal portions used when the histogram fails. |

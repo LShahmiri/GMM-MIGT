@@ -12,7 +12,8 @@ from .exceptions import GMMMIGTError
 from .mi import COLOR_MI_ESTIMATORS, MI_MODES
 from .preprocessing import GMM_COVARIANCE_TYPES, GMM_INIT_METHODS
 from .report import REPORT_FILENAME
-from .splitter import LOW_SAMPLE_STRATEGIES, GMMMIGTSplitter
+from .splitter import LOW_SAMPLE_STRATEGIES, METHODS, UNSCORED_MODES, GMMMIGTSplitter
+from .utils import ROUNDING_MODES
 
 
 def _size(text: str):
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", metavar="PATH", help="also write the JSON report to PATH")
 
     g = p.add_argument_group("MIGT options")
+    g.add_argument("--method", choices=METHODS, help="gmm_migt (default) or migt (no preprocessing)")
     g.add_argument("--mode", choices=MI_MODES)
     g.add_argument("--bins", type=int)
     g.add_argument("--min-bin", type=int, help="minimum images per histogram bin (default 10)")
@@ -52,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="resize images in memory (sets strict_shape=False)")
     g.add_argument("--seed", type=int)
     g.add_argument("--low-sample-strategy", choices=LOW_SAMPLE_STRATEGIES)
+    g.add_argument("--rounding", choices=ROUNDING_MODES,
+                   help="class (default): split sizes rounded per class; per_bin: versions <= 1.0.1")
+    g.add_argument("--unscored", choices=UNSCORED_MODES,
+                   help="include (default): images without MI score are split at random; skip: leave them out")
     g.add_argument("--quiet", action="store_true")
 
     g = p.add_argument_group("GMM-MIGT preprocessing")
@@ -81,7 +87,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     kw = {}
-    for name in ("mode", "bins", "min_bin", "train", "test", "seed", "low_sample_strategy",
+    for name in ("method", "rounding", "unscored", "mode", "bins", "min_bin", "train", "test", "seed", "low_sample_strategy",
                  "n_components", "gmm_tol", "gmm_max_iter", "gmm_covariance_type", "gmm_init",
                  "gmm_max_pixels", "pca_variance", "color_mi", "histogram_convention",
                  "fallback_quantiles", "n_jobs", "processed_root"):

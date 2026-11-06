@@ -21,6 +21,17 @@ from gmm_migt import compute_mi as gmm_compute_mi
 migt = pytest.importorskip("migt")
 
 
+def _legacy_kwargs():
+    """migt < 1.2 rounds per bin, uses mi_quantile for small classes and drops unscored images."""
+    from importlib.metadata import version
+
+    v = getattr(migt, "__version__", None) or version("migt")
+    major, minor = (int(x) for x in v.split(".")[:2])
+    if (major, minor) >= (1, 2):
+        return {}
+    return dict(rounding="per_bin", low_sample_strategy="mi_quantile", unscored="skip")
+
+
 def tree(root):
     out = {}
     for split in ("train", "test", "val"):
@@ -44,7 +55,7 @@ def test_identical_partition_without_preprocessing(make_ds, tmp_path, seed, val,
     with redirect_stdout(io.StringIO()):
         migt.MIGTSplitter(root, **common).run(out_old)
     out_new = str(tmp_path / f"new{seed}{val}{min_bin}")
-    GMMMIGTSplitter(root, use_gmm=False, use_pca=False, histogram_convention="migt", **common).run(out_new)
+    GMMMIGTSplitter(root, method="migt", histogram_convention="migt", **_legacy_kwargs(), **common).run(out_new)
 
     assert tree(out_old) == tree(out_new)
 

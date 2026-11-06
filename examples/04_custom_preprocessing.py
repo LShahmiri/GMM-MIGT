@@ -22,7 +22,7 @@ configs = {
     "fit GMM on 2000 pixels/image": dict(gmm_max_pixels=2000),
     "EM-GMM only (no PCA)": dict(use_pca=False),
     "PCA only (no EM-GMM)": dict(use_gmm=False),
-    "no preprocessing (= MIGT)": dict(use_gmm=False, use_pca=False),
+    "no preprocessing (= MIGT)": dict(method="migt"),
 }
 
 for name, kw in configs.items():

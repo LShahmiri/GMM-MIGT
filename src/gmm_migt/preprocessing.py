@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
+import scipy.linalg
 from sklearn.decomposition import PCA
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.mixture import GaussianMixture
@@ -233,11 +234,20 @@ def pca_channel_reconstruction(channel: np.ndarray, variance: float = 0.95) -> T
     if M.shape[0] < 2 or M.shape[1] < 1 or float(M.var(axis=0, ddof=1).sum()) <= 0.0:
         return M.copy(), 0, 1.0
 
-    pca = PCA(svd_solver="full")
-    Z = pca.fit_transform(M)
-    ratio = pca.explained_variance_ratio_
+    try:
+        pca = PCA(svd_solver="full")
+        Z = pca.fit_transform(M)
+        ratio, components, mean = pca.explained_variance_ratio_, pca.components_, pca.mean_
+    except np.linalg.LinAlgError:
+        # LAPACK's default divide-and-conquer SVD (gesdd) occasionally fails to
+        # converge; the slower QR-based driver (gesvd) gives the same decomposition.
+        mean = M.mean(axis=0)
+        U, S, components = scipy.linalg.svd(M - mean, full_matrices=False, lapack_driver="gesvd")
+        Z = U * S
+        var = S ** 2
+        ratio = var / var.sum()
     k = select_n_components(ratio, variance)
-    recon = Z[:, :k] @ pca.components_[:k] + pca.mean_
+    recon = Z[:, :k] @ components[:k] + mean
     return recon, k, float(np.sum(ratio[:k]))
 
 

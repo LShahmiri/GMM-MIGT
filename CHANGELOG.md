@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-06
+
+### Added
+- `method="migt"` runs MIGT (MI on the original images, no preprocessing)
+  with the same splitter; `method="gmm_migt"` (default) runs GMM-MIGT.
+  Also available as `--method` on the command line.
+- `rounding` option. `"class"` (new default) rounds the train/test/val
+  sizes once per class (largest remainder, at least one image per split
+  when the class has at least as many images as splits) and spreads them
+  over the bins in proportion to their sizes. `"per_bin"` keeps the
+  previous behaviour.
+- `unscored` option. `"include"` (new default) puts images whose MI cannot
+  be computed into an extra stratum of their class that is split at random,
+  so no image is lost; `result.unscored()` lists them with the reason.
+  `"skip"` keeps the previous behaviour. Both raise a `UserWarning`.
+- `class_counts()` and `stratified_counts()`; `ItemRecord.reason`;
+  `RandomSplitter(rounding=...)`.
+
+### Changed
+- `low_sample_strategy` now defaults to `"random"`: classes with
+  `<= min_bin` images are split at random, as in the papers. The reference
+  image has no special role in a random split.
+- With `low_sample_strategy="mi_quantile"` the two MI halves are used as
+  strata, so test/validation images are drawn from both halves (before,
+  `[reference] + low half + high half` was cut in this order and test/val
+  came only from the high-MI half).
+- `from_thesis()` sets `low_sample_strategy="random"` and
+  `rounding="per_bin"`.
+- `use_gmm` and `use_pca` default to `None` (on for `gmm_migt`, off for
+  `migt`); `method="migt"` together with `use_gmm=True` or `use_pca=True`
+  is rejected.
+- SciPy is listed as a dependency (it was already required by scikit-learn).
+
+### Fixed
+- PCA no longer fails with "SVD did not converge": if LAPACK's default SVD
+  driver does not converge, the QR-based driver is used.
+- In `mode="auto"` a grayscale photo in a colour class (or a colour photo in
+  a grayscale class) is now scored on the scale of the reference image
+  instead of failing.
+- A class could end with no test or validation image because every bin was
+  rounded separately (see `rounding`).
+
+The partitions of 1.0.1 are reproduced with `rounding="per_bin"`,
+`low_sample_strategy="mi_quantile"` and `unscored="skip"`.
+
 ## [1.0.1] - 2026-11-03
 
 ### Added

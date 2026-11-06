@@ -17,7 +17,7 @@ Quick start::
 
     from gmm_migt import GMMMIGTSplitter
 
-    splitter = GMMMIGTSplitter(dataset_root="path/to/dataset")
+    splitter = GMMMIGTSplitter(dataset_root="path/to/dataset")   # method="migt" for MIGT
     result = splitter.run(output_root="gmm_migt_output")
     print(result.summary())
 """
@@ -44,7 +44,7 @@ from .preprocessing import (
 )
 from .report import ClassReport, ItemRecord, SplitResult
 from .splitter import GMMMIGTSplitter
-from .utils import IMAGE_EXTENSIONS, list_images, split_counts
+from .utils import IMAGE_EXTENSIONS, class_counts, list_images, split_counts, stratified_counts
 
 __all__ = [
     "__version__",
@@ -77,6 +77,8 @@ __all__ = [
     "interval_labels",
     # utils
     "split_counts",
+    "class_counts",
+    "stratified_counts",
     "list_images",
     "IMAGE_EXTENSIONS",
     # errors

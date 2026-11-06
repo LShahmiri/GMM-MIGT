@@ -41,10 +41,12 @@ def test_run_creates_complete_partition(dataset, tmp_path):
         got = tree[("train", cls)] + tree[("test", cls)]
         assert sorted(got) == sorted(os.listdir(os.path.join(dataset, cls)))  # no loss
         assert len(got) == len(set(got)) == n  # no duplicates / leakage
-    # reference image (first file) always in train
-    for cls, r in res.classes.items():
+    # MI-guided classes: reference image (first file) always in train
+    for cls in ("alpha", "beta"):
+        r = res.classes[cls]
         assert r.items[0].role == "reference" and r.items[0].split == "train"
         assert os.path.basename(r.reference) == "img_000.png"
+    assert res.classes["gamma"].strategy == "low_sample_random"   # 8 <= min_bin: random (papers)
     assert os.path.isfile(os.path.join(out, REPORT_FILENAME))
 
 
@@ -64,7 +66,8 @@ def test_bin_labels_follow_convention(make_ds):
 
 
 def test_strategies_and_ratios(dataset):
-    res = GMMMIGTSplitter(dataset, min_bin=13, verbose=False).plan()
+    res = GMMMIGTSplitter(dataset, min_bin=13, low_sample_strategy="mi_quantile", rounding="per_bin",
+                          verbose=False).plan()
     assert res.classes["alpha"].strategy in ("histogram", "forced_quantile")
     assert res.classes["gamma"].strategy == "low_sample_mi_quantile"  # 8 <= min_bin
     for b_idx, b in enumerate(res.classes["alpha"].bins):
@@ -78,6 +81,7 @@ def test_strategies_and_ratios(dataset):
 def test_three_way_split_thesis_preset(dataset, tmp_path):
     s = GMMMIGTSplitter.from_thesis(dataset, verbose=False)
     assert (s.min_bin, s.ratios, s.histogram_convention) == (10, [0.5, 0.4, 0.1], "thesis")
+    assert (s.low_sample_strategy, s.rounding) == ("random", "per_bin")
     res = s.run(str(tmp_path / "out"))
     assert set(res.split_names) == {"train", "test", "val"}
     r = res.classes["alpha"]
@@ -171,11 +175,48 @@ def test_color_mi_estimator(dataset):
     assert mi_a != mi_b and all(v >= 0 for v in mi_a)
 
 
+def test_class_rounding_ratios(dataset):
+    from gmm_migt import class_counts
+    res = GMMMIGTSplitter(dataset, min_bin=13, train=0.7, test=0.2, val=0.1, verbose=False).plan()
+    for name, r in res.classes.items():
+        assert [r.counts[s] for s in ("train", "test", "val")] == class_counts(r.n_images, [0.7, 0.2, 0.1])
+
+
+def test_low_sample_mi_quantile_uses_both_halves_for_test(make_ds):
+    # 10 images = reference + 9; halves of 4 and 5 MI-sorted images. Versions <= 1.0.1 assigned
+    # [ref] + low + high in order, so test/val came only from the high-MI half.
+    root = make_ds({"small": 10})
+    seen_low_in_test = False
+    for seed in range(20):
+        r = GMMMIGTSplitter(root, low_sample_strategy="mi_quantile", train=0.5, test=0.4, val=0.1,
+                            method="migt", seed=seed, verbose=False).plan().classes["small"]
+        assert r.strategy == "low_sample_mi_quantile"
+        assert [r.counts[s] for s in ("train", "test", "val")] == [5, 4, 1]
+        seen_low_in_test |= any(it.bin == 0 and it.split != "train" for it in r.items)
+        legacy = GMMMIGTSplitter(root, low_sample_strategy="mi_quantile", train=0.5, test=0.4, val=0.1,
+                                 method="migt", rounding="per_bin", seed=seed, verbose=False).plan()
+        assert all(it.bin != 0 for it in legacy.classes["small"].items if it.split != "train")
+    assert seen_low_in_test
+
+
+def test_low_sample_random_is_random_and_complete(make_ds):
+    root = make_ds({"small": 9})
+    seen = set()
+    for seed in range(15):
+        r = GMMMIGTSplitter(root, train=0.7, test=0.2, val=0.1, seed=seed, verbose=False).plan().classes["small"]
+        assert r.strategy == "low_sample_random" and r.reference is None
+        assert len({it.path for it in r.items}) == 9
+        assert [r.counts[s] for s in ("train", "test", "val")] == [6, 2, 1]     # val no longer 0
+        seen.add(next(it.split for it in r.items if it.path.endswith("img_000.png")))
+    assert seen != {"train"}                                    # the first file is not forced into train
+
+
 def test_low_sample_random_never_duplicates_reference(make_ds, tmp_path):
     root = make_ds({"small": 9})
     for seed in range(15):
         out = str(tmp_path / f"o{seed}")
-        res = GMMMIGTSplitter(root, min_bin=13, low_sample_strategy="random", seed=seed, verbose=False).run(out)
+        res = GMMMIGTSplitter(root, min_bin=13, low_sample_strategy="random", rounding="per_bin",
+                              seed=seed, verbose=False).run(out)
         tree = files_in(out)
         assert "img_000.png" in tree[("train", "small")]
         assert "img_000.png" not in tree[("test", "small")]
@@ -212,8 +253,11 @@ def test_tiny_and_empty_classes(make_ds, tmp_path):
     assert res.classes["empty"].strategy == "empty"
     assert os.path.isdir(os.path.join(out, "train", "empty"))  # no class skipping
     assert res.classes["one"].counts["train"] == 1
-    assert res.classes["two"].strategy == "low_sample_random_fallback"
-    assert sum(res.classes["two"].counts.values()) == 2
+    assert res.classes["two"].strategy == "low_sample_random"
+    assert res.classes["two"].counts == {"train": 1, "test": 1, "val": 0}
+    legacy = GMMMIGTSplitter(root, low_sample_strategy="mi_quantile", verbose=False).plan()
+    assert legacy.classes["two"].strategy == "low_sample_random_fallback"
+    assert sum(legacy.classes["two"].counts.values()) == 2
 
 
 def test_strict_shape_skips_and_resize_mode(make_ds):
@@ -224,13 +268,19 @@ def test_strict_shape_skips_and_resize_mode(make_ds):
     with open(os.path.join(cls_dir, "zz_broken.jpg"), "wb") as f:
         f.write(b"broken")
     with pytest.warns(UserWarning, match="2 image"):
-        res = GMMMIGTSplitter(root, verbose=False).plan()
+        res = GMMMIGTSplitter(root, unscored="skip", verbose=False).plan()
     reasons = {os.path.basename(s["path"]): s["reason"] for s in res.classes["c"].skipped}
     assert set(reasons) == {"zz_big.png", "zz_broken.jpg"}
     assert "shape" in reasons["zz_big.png"].lower()
     with pytest.warns(UserWarning, match="1 image"):
-        res2 = GMMMIGTSplitter(root, strict_shape=False, resize_to=(24, 24), verbose=False).plan()
+        res2 = GMMMIGTSplitter(root, strict_shape=False, resize_to=(24, 24), unscored="skip",
+                               verbose=False).plan()
     assert [os.path.basename(s["path"]) for s in res2.classes["c"].skipped] == ["zz_broken.jpg"]
+    with pytest.warns(UserWarning, match="2 image"):
+        res3 = GMMMIGTSplitter(root, verbose=False).plan()                    # default: include
+    assert res3.classes["c"].skipped == [] and len(res3.classes["c"].items) == 32
+    roles = {os.path.basename(it.path): it.role for it in res3.classes["c"].items}
+    assert roles["zz_big.png"] == roles["zz_broken.jpg"] == "unscored"
 
 
 def test_processed_images_saved(dataset, tmp_path):
@@ -304,3 +354,55 @@ def test_unreadable_reference_raises(make_ds):
         f.write(b"x")
     with pytest.raises(Exception, match="Reference image"):
         GMMMIGTSplitter(root, verbose=False).plan()
+
+
+# ---------------------------------------------------------------- method option
+def test_method_migt_equals_no_preprocessing(dataset):
+    a = GMMMIGTSplitter(dataset, method="migt", verbose=False).plan()
+    b = GMMMIGTSplitter(dataset, use_gmm=False, use_pca=False, verbose=False).plan()
+    assert assignment(a) == assignment(b)
+    assert [it.mi for it in a.classes["alpha"].items] == [it.mi for it in b.classes["alpha"].items]
+    assert a.method == "MIGT" and a.config["method"] == "migt"
+    assert a.config["use_gmm"] is False and a.config["use_pca"] is False
+    g = GMMMIGTSplitter(dataset, verbose=False)
+    assert g.method == "gmm_migt" and g.preprocessing.use_gmm and g.preprocessing.use_pca
+
+
+@pytest.mark.parametrize("kw", [{"use_gmm": True}, {"use_pca": True}])
+def test_method_migt_rejects_preprocessing(dataset, kw):
+    with pytest.raises(ConfigurationError, match="method='migt'"):
+        GMMMIGTSplitter(dataset, method="migt", **kw)
+
+
+@pytest.mark.parametrize("kw,msg", [({"method": "x"}, "method"), ({"rounding": "x"}, "rounding"),
+                                    ({"unscored": "x"}, "unscored")])
+def test_invalid_new_options(dataset, kw, msg):
+    with pytest.raises(ConfigurationError, match=msg):
+        GMMMIGTSplitter(dataset, **kw)
+
+
+def test_grayscale_photo_in_colour_class_is_scored(make_ds):
+    root = make_ds({"c": 30})
+    img = cv2.imread(os.path.join(root, "c", "img_005.png"))
+    cv2.imwrite(os.path.join(root, "c", "img_005.png"), cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    r = GMMMIGTSplitter(root, verbose=False).plan().classes["c"]
+    it = next(i for i in r.items if i.path.endswith("img_005.png"))
+    assert it.role == "sample" and it.mi is not None and 1.0 <= it.mi <= 2.0   # colour-NMI scale
+
+
+def test_svd_failure_falls_back(monkeypatch):
+    import gmm_migt.preprocessing as pp
+    rng = np.random.default_rng(0)
+    M = rng.random((24, 24)) * 255
+    want = pp.pca_channel_reconstruction(M, 0.95)
+
+    class Broken:
+        def __init__(self, *a, **k):
+            pass
+
+        def fit_transform(self, X):
+            raise np.linalg.LinAlgError("SVD did not converge")
+
+    monkeypatch.setattr(pp, "PCA", Broken)
+    got = pp.pca_channel_reconstruction(M, 0.95)
+    assert got[1] == want[1] and np.allclose(got[0], want[0]) and got[2] == pytest.approx(want[2])
