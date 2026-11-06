@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-06
+
+### Documentation
+- README: usage examples for GMM-MIGT and MIGT (`method="migt"`), a
+  comparison of MIGT, GMM-MIGT and Random, `plan()` before copying, and the
+  thesis settings for each method. No change to the code.
+
 ## [1.1.0] - 2026-11-06
 
 ### Added
