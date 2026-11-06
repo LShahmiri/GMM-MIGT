@@ -4,7 +4,8 @@
 
 <h1 align="center">GMM-MIGT</h1>
 <p align="center"><b>Gaussian Mixture Model – Mutual Information Guided Training</b><br>
-Representative train / test / validation partitioning of image datasets</p>
+Representative train / test / validation partitioning of image datasets<br>
+<b>MIGT and GMM-MIGT in one package</b></p>
 
 ---
 
@@ -57,14 +58,29 @@ misclassifications than MIGT, HDBSCAN-based partitioning and Random
 partitioning on the VNPlant-200, BJFU100 and WEAPD datasets with an
 Xception CNN.
 
-`gmm-migt` is an **independent package**. It does not depend on, replace or
-modify the `migt` package, and both can be installed in the same
-environment (`import migt` / `import gmm_migt`).
+**Two methods in one package.** Since version 1.1.0 the same splitter runs
+both methods, selected with `method`:
+
+```python
+from gmm_migt import GMMMIGTSplitter
+
+GMMMIGTSplitter("dataset")                  # GMM-MIGT: EM-GMM + PCA, then MI (default)
+GMMMIGTSplitter("dataset", method="migt")   # MIGT: MI on the original images
+```
+
+Both methods share the histogram partitioning, the small-class rule, the
+rounding and every integrity check, so they differ only in the images used
+to compute the MI scores. With the same parameters, `method="migt"` gives the
+same partition as the `migt` package (version 1.2.0 or later).
 
 ```text
- Dataset ──► EM-GMM (K=4) ──► PCA (CPV 95%) ──► MI vs. reference ──► adaptive histogram ──► train / test / val
-              colour reduction   per channel       per class            (4 → 3 → 2 bins)
+ GMM-MIGT:  Dataset ──► EM-GMM (K=4) ──► PCA (CPV 95%) ──► MI vs. reference ──► adaptive histogram ──► train / test / val
+                         colour reduction   per channel       per class            (4 → 3 → 2 bins)
+ MIGT:      Dataset ───────────────────────────────────────► MI vs. reference ──► adaptive histogram ──► train / test / val
 ```
+
+`gmm-migt` does not depend on the `migt` package; both can be installed in
+the same environment (`import migt` / `import gmm_migt`).
 
 ## 2. Scientific background
 
@@ -89,6 +105,9 @@ max-normalised to `[0, 1]` with `MI_i / max(MI)` (Eq. 4.9).
 * If even 2 bins fail, the scores are sorted and cut into **three equal
   portions**, and each portion is split by the ratios. A single random bin
   is never used.
+* Classes with at most `min_bin` images are split at random by the ratios.
+* The train/test/val sizes are rounded once per class and spread over the
+  bins in proportion to their sizes, so no split is left empty by rounding.
 
 **EM-GMM colour reduction** (Section 5.2.1, Eq. 5.1–5.4):
 
@@ -127,7 +146,7 @@ partition itself copies the **original**, unmodified image files.
 | Noise / redundancy | none removed | PCA keeps 95 % CPV per channel |
 | Binning, fallbacks, ratios, reference image | Algorithm 1 | **identical** (thesis Section 5.2) |
 | Output | copies of original images | copies of original images (+ optional processed images) |
-| Python package | `migt` / `MIGTSplitter` | `gmm-migt` / `GMMMIGTSplitter` |
+| Python package | `migt` / `MIGTSplitter`, or `gmm-migt` / `GMMMIGTSplitter(method="migt")` | `gmm-migt` / `GMMMIGTSplitter` (`method="gmm_migt"`, default) |
 
 `GMMMIGTSplitter` accepts **every `MIGTSplitter` argument**, with the same
 name and meaning. **MIGT is available in this package** with
@@ -490,7 +509,7 @@ validation subsets you use.
 
 ## 11. Citation
 
-If you use GMM-MIGT, please cite:
+If you use GMM-MIGT (`method="gmm_migt"`), please cite:
 
 > L. Shahmiri, P. Wong and L. S. Dooley, "A Gaussian Mixture Model and Mutual
 > Information Guided Dataset Partitioning Algorithm for Convolutional Neural
@@ -524,7 +543,7 @@ The full methodology is described in the PhD thesis:
 }
 ```
 
-The MIGT method on which GMM-MIGT is built:
+If you use MIGT (`method="migt"`), please cite the MIGT paper, on which GMM-MIGT is built:
 
 ```bibtex
 @inproceedings{shahmiri2022migt,

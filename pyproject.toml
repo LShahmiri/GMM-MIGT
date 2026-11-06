@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gmm-migt"
 dynamic = ["version"]
-description = "GMM-MIGT: Gaussian Mixture Model - Mutual Information Guided Training for representative train/test/validation partitioning of image datasets"
+description = "GMM-MIGT and MIGT: Mutual Information Guided Training (with Gaussian Mixture Model preprocessing) for representative train/test/validation partitioning of image datasets"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
 license = "MIT"
