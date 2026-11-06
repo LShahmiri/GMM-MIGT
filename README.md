@@ -273,6 +273,100 @@ gmm-migt path/to/dataset gmm_migt_output --thesis --n-components 4 --pca-varianc
 gmm-migt path/to/dataset --dry-run          # print the partition, copy nothing
 ```
 
+### 5.1 Examples: GMM-MIGT or MIGT
+
+The only difference between the two methods is `method`. Every other
+parameter has the same meaning for both.
+
+**Example 1 – GMM-MIGT** (EM-GMM + PCA preprocessing, then MI), with a
+validation set:
+
+```python
+from gmm_migt import GMMMIGTSplitter
+
+splitter = GMMMIGTSplitter(
+    dataset_root="dataset",
+    method="gmm_migt",          # default, can be omitted
+    train=0.7, test=0.2, val=0.1,
+    seed=42,
+)
+result = splitter.run(output_root="split_gmm_migt")
+print(result.summary())
+```
+
+**Example 2 – MIGT only** (no preprocessing: MI on the original images),
+with exactly the same split settings:
+
+```python
+from gmm_migt import GMMMIGTSplitter
+
+splitter = GMMMIGTSplitter(
+    dataset_root="dataset",
+    method="migt",              # MIGT: EM-GMM and PCA are switched off
+    train=0.7, test=0.2, val=0.1,
+    seed=42,
+)
+result = splitter.run(output_root="split_migt")
+print(result.summary())
+```
+
+`method="migt"` gives the same partition as `migt.MIGTSplitter` (migt ≥ 1.2.0)
+with the same parameters. It cannot be combined with `use_gmm=True` or
+`use_pca=True`.
+
+**Example 3 – compare MIGT, GMM-MIGT and Random on one dataset.** Images of
+different sizes are resized in memory for the MI computation (the original
+files are copied); `n_jobs=-1` uses all CPU cores for the preprocessing.
+
+```python
+from gmm_migt import GMMMIGTSplitter, RandomSplitter
+
+common = dict(train=0.7, test=0.2, val=0.1, seed=0, verbose=False)
+images = dict(strict_shape=False, resize_to=(224, 224))
+
+for name, splitter in {
+    "random":   RandomSplitter("dataset", **common),
+    "migt":     GMMMIGTSplitter("dataset", method="migt", **images, **common),
+    "gmm_migt": GMMMIGTSplitter("dataset", method="gmm_migt", n_jobs=-1, **images, **common),
+}.items():
+    result = splitter.run(output_root=f"compare/{name}")
+    print(name, result.totals())            # e.g. {'train': 700, 'test': 200, 'val': 100}
+```
+
+**Example 4 – look at the partition before copying anything.** `plan()`
+computes the split without writing files:
+
+```python
+from gmm_migt import GMMMIGTSplitter
+
+result = GMMMIGTSplitter("dataset", method="migt", verbose=False).plan()
+
+for name, report in result.classes.items():
+    sizes = [b.size for b in report.bins]
+    print(f"{name}: {report.strategy}, bins={sizes}, counts={report.counts}")
+
+print(result.unscored())                    # images without an MI score (if any), with the reason
+result.to_json("plan.json")                 # save the plan; copy it later with SplitResult.copy_to()
+```
+
+**Example 5 – the thesis settings** (`min_bin=10`, 50/40/10) for each
+method:
+
+```python
+from gmm_migt import GMMMIGTSplitter
+
+gmm_migt = GMMMIGTSplitter.from_thesis("dataset")                 # GMM-MIGT as in the thesis
+migt     = GMMMIGTSplitter.from_thesis("dataset", method="migt")  # MIGT as in the thesis
+```
+
+The same examples on the command line:
+
+```bash
+gmm-migt dataset split_gmm_migt --train 0.7 --test 0.2 --val 0.1
+gmm-migt dataset split_migt --method migt --train 0.7 --test 0.2 --val 0.1
+gmm-migt dataset split_migt --method migt --resize-to 224x224 --dry-run
+```
+
 ## 6. Supported modes
 
 All modes and options of MIGT 1.1.1 are available, plus the GMM-MIGT
