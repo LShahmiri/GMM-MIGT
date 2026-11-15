@@ -9,6 +9,9 @@ Representative train / test / validation partitioning of image datasets<br>
 
 ---
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24246067.svg)](https://doi.org/10.5281/zenodo.24246067)
+
+---
 ## Contents
 
 1. [Introduction](#1-introduction)
