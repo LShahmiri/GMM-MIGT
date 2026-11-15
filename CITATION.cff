@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: >-
+  If you use, reproduce, adapt, or extend the GMM-MIGT
+  algorithm or its implementation, please cite the
+  original research paper listed below.
+
+type: software
+title: "GMM-MIGT: Gaussian Mixture Model and Mutual Information Guided Dataset Partitioning"
+authors:
+  - family-names: Shahmiri
+    given-names: Lida
+version: 1.1.1
+date-released: "2026-11-06"
+license: MIT
+repository-code: "https://github.com/LShahmiri/GMM-MIGT"
+url: "https://pypi.org/project/gmm-migt/"
+
+preferred-citation:
+  type: conference-paper
+  title: "A Gaussian Mixture Model and Mutual Information Guided Dataset Partitioning Algorithm for Convolutional Neural Network Training"
+  authors:
+    - family-names: Shahmiri
+      given-names: Lida
+    - family-names: Wong
+      given-names: Patrick
+    - family-names: Dooley
+      given-names: Laurence S.
+  collection-title: "2025 25th International Conference on Digital Signal Processing (DSP)"
+  conference:
+    name: "25th International Conference on Digital Signal Processing (DSP)"
+    city: Pylos
+    country: GR
+  year: 2025
+  start: 1
+  end: 5
+  doi: "10.1109/DSP65409.2025.11074907"
+  url: "https://ieeexplore.ieee.org/abstract/document/11074907"

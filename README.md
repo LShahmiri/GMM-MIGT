@@ -603,7 +603,9 @@ validation subsets you use.
 
 ## 11. Citation
 
-If you use GMM-MIGT (`method="gmm_migt"`), please cite:
+If you use, reproduce, adapt, or extend the GMM-MIGT algorithm (`method="gmm_migt"`) or its implementation in your research, software, or publications, please cite the original research paper below.
+
+For academic publications, please include the citation in your reference list. We also encourage citation of the PhD thesis for a more detailed description of the methodology.
 
 > L. Shahmiri, P. Wong and L. S. Dooley, "A Gaussian Mixture Model and Mutual
 > Information Guided Dataset Partitioning Algorithm for Convolutional Neural
